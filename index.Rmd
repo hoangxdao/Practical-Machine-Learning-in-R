@@ -1,0 +1,170 @@
+---
+title: "Practical Machine Learning"
+author: "Hoang Dao"
+date: "10/7/2019"
+output: html_document
+---
+# Practical Machine Learning from Coursera:
+Final project: Prediction using Weight Lifting Excercise dataset
+
+# Part 1. Summary: 
+This is the report for the Peer graded assignment for Coursera's Practical Machine Learning course. The process is coded using Rstudio and published in html. This serves as an application excercise using multiple machine learning methods, and compare their predictive power. Specifically, the three techniques used in this report are: decision tree, random forest, and gradient boosting model. The subject is the manner in which six participants do their weight lifting excercises (variable "classe" in the dataset. The machine learning algorithm is applied to 20 different test cases provided in the test data. The predictions are then graded in the Course Project Prediction Quiz.
+
+# Part 2. Introduction (From source):
+Devices such as Jawbone Up, Nike FuelBand, and Fitbit can enable collecting a large amount of data about someone's physical activity. These devices are used by the enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. However, even though these enthusiasts regularly quantify how much of a particular activity they do, they rarely quantify how well they do it. In this project, the goal is to use data from accelerometers on the belt, forearm, arm, and dumbell of six participants. They were asked to perform barbell lifts correctly and incorrectly in five different ways. More information is available from the following website: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The data in this project is provided by the following sources:The data for this project can be found on the following website:
+http://groupware.les.inf.puc-rio.br/har.
+
+The training data for this project:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data for this project:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The full reference is as follows:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. "Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)". Stuttgart, Germany: ACM SIGCHI, 2013.
+
+
+# Part 3: Data processing
+
+First the following packages are loaded:
+
+```{r}
+library(caret)
+library(ggplot2)
+library(lattice)
+library(rattle)
+library(randomForest)
+library(RColorBrewer)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(gbm)
+```
+Data reading and summary
+
+
+```{r pml.training}
+pml.training <- read.csv("C:/Users/Hoang/Desktop/pml-training.csv",na.strings = c("NA",""))
+pml.testing <- read.csv("C:/Users/Hoang/Desktop/pml-testing.csv",na.strings = c("NA",""))
+  
+summary(pml.training$classe)
+dim(pml.training)
+dim(pml.testing)
+```
+There are 19622 data points and 160 predictors. Some of predictors will not serve a meaningful purpose, therefore I search for near zero variances(NZV's) and also participant ID's:
+
+Remove ID's,  NA's and NZV's as the number of these variables are high
+```{r}
+pml.training<-pml.training[,colSums(is.na(pml.training))==0]
+pml.testing<-pml.testing[,colSums(is.na(pml.testing))==0]
+pml.training<-pml.training[,-(1:5)]
+pml.testing<-pml.testing[,-(1:5)]
+```
+Then proceed to create training-testing partition within the training data: 69% of the data goes to training and the other 31% goes to testing
+
+```{r}
+set.seed(666)
+Train<-createDataPartition(pml.training$classe,p=0.69,list=F)
+trainset<-pml.training[Train,]
+testset<-pml.training[-Train,]
+nz<-nearZeroVar(trainset)
+trainset<-trainset[,-nz]
+testset<-testset[,-nz]
+dim(trainset)
+dim(testset)
+```
+We have 54 remaining variables for testing and training, with about 13.5k data points on training set and about 6k data points on testing set.
+
+Then perform correlation analysis to find out if multicollinearity is a problem
+
+```{r}
+correlation<-cor(trainset[,-54])
+corrplot(correlation,order="FPC",method="color",type="upper",
+         tl.cex=0.8)
+```
+Since correlation between covariates are not severe, I just keep everything to make the final predictors. Now proceed to prediction model choice:
+
+Prediction models:
+
+I use 3 types of models in this section: Simple Decision Tree, Random Forest, and GBM (Gradient Boosting Model). Of the three, Decision Tree is obviously the one to expectly perform less accurately than the others.
+
+## 1. Decision tree:
+```{r}
+set.seed(6969)
+model1Tree<-rpart(classe~.,data=trainset,method="class")
+fancyRpartPlot(model1Tree)
+```
+Apply to test set
+
+```{r}
+predict1Tree<-predict(model1Tree,newdata = testset,type="class")
+confusion1Tree<-confusionMatrix(predict1Tree,testset$classe)
+confusion1Tree
+```
+Plot
+```{r}
+plot(confusion1Tree$table,col=confusion1Tree$byClass,
+     main=paste( "Model: Decision Tree accuracy",
+                 round(confusion1Tree$overall["Accuracy"],4)))
+```
+Decision Tree does relatively well at 84.28 Accuracy (seeds are provided in the code to replicate this result)
+
+
+## 2. Random forest model:
+```{r}
+set.seed(6996)
+controlRandomF<-trainControl(method="cv",number=3,verboseIter = F)
+model2RandomF<-train(classe~.,data=trainset,method="rf",trControl=controlRandomF)
+model2RandomF$finalModel
+```
+
+Apply to test set:
+```{r}
+predict2Forest<-predict(model2RandomF,newdata= testset)
+confusion2Forest<-confusionMatrix(predict2Forest,testset$classe)
+confusion2Forest
+```
+Plot 2:
+```{r}
+plot(confusion2Forest$table,col=confusion2Forest$byClass,
+     main = paste ("Random Forest-Accuracy =",
+                   round(confusion2Forest$overall['Accuracy'],4)))
+```
+Random Forest predicts significantly better than Decision Tree at 99.64% Accuracy
+
+## 3. Gradient Boosted Model:
+```{r}
+set.seed(6996)
+
+controlGBM<-trainControl(method="repeatedcv",number=5,repeats=1)
+model3GBM<-train(classe~.,data=trainset,method="gbm",
+                 trControl=controlGBM,verbose = FALSE)
+model3GBM$finalModel
+```
+Predction3:
+```{r}
+predict3GBM<-predict(model3GBM,newdata=testset)
+confusion3GBM<-confusionMatrix(predict3GBM,testset$classe)
+
+confusion3GBM
+```
+Plot3:
+```{r}
+plot(confusion3GBM$table, col=confusion3GBM$byClass,
+     main = paste ("GBM - Accuracy=", round (confusion3GBM$overall['Accuracy'],4)))
+```
+Gradient Booested Model also outperform Decision tree by a huge margin, at 98.4% Accuracy, slightly below Random Forest.
+
+
+
+## APPLYING TO TEST DATA:
+
+I use the model that perform the best out of the 3 models above: Random Forest, to predict using the testing set:
+
+```{r}
+FinalPrediction<-predict(model2RandomF,newdata=pml.testing)
+FinalPrediction
+```
